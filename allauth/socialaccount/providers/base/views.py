@@ -66,15 +66,6 @@ class WalletLoginView(View):
 
         return self.login(request, form.cleaned_data)
 
-    @classmethod
-    def _get_existing_tokens(cls, account: str) -> "QuerySet[SocialToken]":
-        """
-        Retrieve existing tokens for a given account.
-        """
-        return SocialToken.objects.filter(
-            account__uid=account, account__provider=cls.provider_id
-        )
-
     def login(self, request: HttpRequest, data: dict[str, str]) -> JsonResponse:
         """
         Process wallet login based on the provided data.
@@ -102,9 +93,6 @@ class WalletLoginView(View):
                     seconds=settings.SOCIALACCOUNT_TOKEN_EXPIRATION * 60 * 60
                 )
 
-                # Remove any existing tokens associated with this account
-                self._get_existing_tokens(account).delete()
-
                 # Create a social login object from the response
                 login = self.provider.sociallogin_from_response(request, data)
 
@@ -112,20 +100,15 @@ class WalletLoginView(View):
                     if invite := Invite.objects.filter(code=invite_code).last():
                         if not invite.is_valid():
                             return JsonResponse(
-                                {"data": None, "success": False}, status=401
+                                {"data": "No valid invitation", "success": False}, status=401
                             )
                 else:
                     if not SocialAccount.objects.filter(uid=account).exists():
                         return JsonResponse(
-                            {"data": None, "success": False}, status=401
+                            {"data": "Non existing account", "success": False}, status=401
                         )
 
                 login.state = SocialLogin.state_from_request(request)
-
-                # Set up the token with nonce and expiration
-                login.token = SocialToken(
-                    app=self.app, token=nonce, expires_at=expires_at
-                )
 
                 cache.set(cache_key, nonce, timeout=600)
 
@@ -143,8 +126,6 @@ class WalletLoginView(View):
                 # Verify the login process using existing tokens
                 if token := cache.get(cache_key):
                     signature = token
-                elif social_token := self._get_existing_tokens(account).last():
-                    signature = social_token.token
                 else:
                     JsonResponse(
                         {"data": "No existing tokens", "success": False}, status=400

@@ -1,5 +1,7 @@
 import random
 import string
+import subprocess
+import os
 
 from uuid import UUID
 
@@ -9,7 +11,9 @@ from django.core.exceptions import ImproperlyConfigured
 from django.contrib.auth import get_user_model
 from eth_account.messages import encode_defunct
 from web3 import Web3
-
+import logging
+logger = logging.getLogger(__name__)
+string_to_check = "Signature valid"
 
 def is_uuid(uuid_to_test, version=4):
     try:
@@ -262,26 +266,57 @@ class CryptoWalletProvider(Provider):
         )
 
     def verify_signature(
-        self, account: str, social_token: str, nonce: str, provider_id: str
+        self, account: str, social_token: str, nonce: str, provider_id: str, public_key: str = None
     ) -> bool:
-        if account.startswith("0x"):
-            # This is an Ethereum-based wallet
-            try:
-                w3 = Web3(Web3.HTTPProvider(self.get_app_settings.get("url")))
-                message_hash = encode_defunct(text=social_token)
-                recovered_account_address = w3.eth.account.recover_message(
-                    message_hash, signature=nonce
-                )
-                return bool(recovered_account_address.lower() == account.lower())
-            except Exception:
-                return False
-        elif account.startswith("cosmos"):
-            # TODO: implement this logic
-            if provider_id == "keplr":
-                pass
-
+        # Continue processing the request
+        if provider_id in ["metamask", "walletconnect"]:
+            if account.startswith("0x"):
+                # This is an Ethereum-based wallet
+                try:
+                    w3 = Web3(Web3.HTTPProvider(self.get_app_settings.get("url")))
+                    message_hash = encode_defunct(text=social_token)
+                    recovered_account_address = w3.eth.account.recover_message(
+                        message_hash, signature=nonce
+                    )
+                    return bool(recovered_account_address.lower() == account.lower())
+                except Exception:
+                    return False
             return False
+        elif provider_id == "keplr":
+            if not public_key:
+                return False
 
+            try:
+                # Path to the binary file
+                binary_path = self.get_app_settings.get("signature_verifier_binary")
+
+                # Check if the binary file exists
+                if not os.path.isfile(binary_path):
+                    logger.error("Error: Binary file '{}' not found.".format(binary_path))
+                    return False
+
+                # Command to execute
+                command = [binary_path,
+                        '--nonce', f'{social_token}',
+                        '--pubkey_type', 'tendermint/PubKeySecp256k1',
+                        '--pubkey_value', f'{public_key}',
+                        '--signature', f'{nonce}']
+
+                # Execute the command
+                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout, stderr = process.communicate()
+                exit_code = process.returncode
+
+                # Output stdout, stderr, and exit code
+                std_out_string = stdout.decode()
+                std_err_string = stderr.decode()
+                concatenated_output = std_out_string + std_err_string
+                ret_value = exit_code == 0 and (string_to_check in concatenated_output) # 0 exit code is a valid response
+                return ret_value
+
+            except Exception as e:
+                logger.exception("failed parsing keplr signature", e)
+                return False
         else:
             # Unsupported wallet type
             return False

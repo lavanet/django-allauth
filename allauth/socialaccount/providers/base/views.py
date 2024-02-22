@@ -1,4 +1,6 @@
 import json
+import logging
+
 from allauth.socialaccount.adapter import get_adapter
 from allauth.socialaccount.helpers import (
     complete_social_login,
@@ -17,6 +19,9 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
+
+
+logger = logging.getLogger(__name__)
 
 
 Invite = apps.get_model("invites", "Invite")
@@ -73,6 +78,7 @@ class WalletLoginView(View):
         try:
             process = data["process"]
             account = data["account"]
+            public_key = data["public_key"]
             invite_code = data["invite_code"]
 
             # Store user ID and process type in request
@@ -128,36 +134,35 @@ class WalletLoginView(View):
                 # Verify the login process using existing tokens
                 if token := cache.get(cache_key):
                     signature = token
+                    if signature:
+                        nonce = request.session.get("login_token")
+                        if self.provider.verify_signature(
+                            account, signature, nonce, self.provider_id, public_key
+                        ):
+                            request.session["login_token"] = nonce
+                            login = self.provider.sociallogin_from_response(request, data)
+                            login.state = SocialLogin.state_from_request(request)
+                            complete_social_login(request, login)
+                            return JsonResponse(
+                                {"data": str(login.user.profile.uid), "success": True},
+                                status=200,
+                            )
+
+                        else:
+                            return JsonResponse(
+                                {"data": "Wrong signature", "success": False}, status=400
+                            )
+                    else:
+                        return JsonResponse(
+                            {"data": "No signature", "success": False}, status=400
+                        )
                 else:
-                    JsonResponse(
+                    return JsonResponse(
                         {"data": "No existing tokens", "success": False}, status=400
                     )
 
-                if signature:
-                    nonce = request.session.get("login_token")
-                    if self.provider.verify_signature(
-                        account, signature, nonce, self.provider_id
-                    ):
-                        request.session["login_token"] = nonce
-                        login = self.provider.sociallogin_from_response(request, data)
-                        login.state = SocialLogin.state_from_request(request)
-                        complete_social_login(request, login)
-                        return JsonResponse(
-                            {"data": str(login.user.profile.uid), "success": True},
-                            status=200,
-                        )
-
-                    else:
-                        JsonResponse(
-                            {"data": "Wrong signature", "success": False}, status=400
-                        )
-
-            return JsonResponse({"data": None, "success": False}, status=400)
+            return JsonResponse({"data": "Wrong process", "success": False}, status=400)
 
         except Exception as e:
-            import traceback
-            import sys
-
-            print(traceback.format_exc())
-            print(sys.exc_info()[2])
-            return JsonResponse({"error": str(e)}, status=500)
+            logger.exception(e)
+            return JsonResponse({}, status=500)

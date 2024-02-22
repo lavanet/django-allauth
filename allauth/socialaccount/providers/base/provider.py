@@ -261,7 +261,9 @@ class CryptoWalletProvider(Provider):
             for _ in range(32)
         )
 
-    def verify_signature(self, account: str, social_token: str, nonce: str) -> bool:
+    def verify_signature(
+        self, account: str, social_token: str, nonce: str, provider_id: str
+    ) -> bool:
         if account.startswith("0x"):
             # This is an Ethereum-based wallet
             try:
@@ -274,6 +276,10 @@ class CryptoWalletProvider(Provider):
             except Exception:
                 return False
         elif account.startswith("cosmos"):
+            # TODO: implement this logic
+            if provider_id == "keplr":
+                pass
+
             return False
 
         else:

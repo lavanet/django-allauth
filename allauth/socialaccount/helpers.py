@@ -1,7 +1,8 @@
 from django.contrib import messages
+from django.conf import settings
 from django.forms import ValidationError
 from django.http import HttpResponseRedirect
-from django.shortcuts import render
+from django.shortcuts import render, resolve_url
 from django.urls import reverse
 
 from allauth.account import app_settings as account_settings, authentication
@@ -122,6 +123,9 @@ def render_authentication_error(
     extra_context=None,
 ):
     try:
+        if provider.id in ["google", "twitter"]:
+            return HttpResponseRedirect(resolve_url(settings.LOGIN_REDIRECT_URL))
+
         if extra_context is None:
             extra_context = {}
         get_adapter().on_authentication_error(

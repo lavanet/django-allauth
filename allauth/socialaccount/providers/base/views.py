@@ -100,12 +100,14 @@ class WalletLoginView(View):
                     if invite := Invite.objects.filter(code=invite_code).last():
                         if not invite.is_valid():
                             return JsonResponse(
-                                {"data": "No valid invitation", "success": False}, status=401
+                                {"data": "No valid invitation", "success": False},
+                                status=401,
                             )
                 else:
                     if not SocialAccount.objects.filter(uid=account).exists():
                         return JsonResponse(
-                            {"data": "Non existing account", "success": False}, status=401
+                            {"data": "Non existing account", "success": False},
+                            status=401,
                         )
 
                 login.state = SocialLogin.state_from_request(request)
@@ -133,7 +135,9 @@ class WalletLoginView(View):
 
                 if signature:
                     nonce = request.session.get("login_token")
-                    if self.provider.verify_signature(account, signature, nonce):
+                    if self.provider.verify_signature(
+                        account, signature, nonce, self.provider_id
+                    ):
                         request.session["login_token"] = nonce
                         login = self.provider.sociallogin_from_response(request, data)
                         login.state = SocialLogin.state_from_request(request)

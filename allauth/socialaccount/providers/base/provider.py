@@ -1,5 +1,7 @@
 import random
 import string
+import subprocess
+import os
 
 from uuid import UUID
 
@@ -10,6 +12,7 @@ from django.contrib.auth import get_user_model
 from eth_account.messages import encode_defunct
 from web3 import Web3
 
+string_to_check = "Signature valid"
 
 def is_uuid(uuid_to_test, version=4):
     try:
@@ -275,13 +278,41 @@ class CryptoWalletProvider(Provider):
                 return bool(recovered_account_address.lower() == account.lower())
             except Exception:
                 return False
-        elif account.startswith("cosmos"):
-            # TODO: implement this logic
-            if provider_id == "keplr":
-                pass
+        elif provider_id == "keplr":
+            try:
+                # Path to the binary file
+                binary_path = './third_party/verify_cosmos_signature'
 
-            return False
+                # Check if the binary file exists
+                if not os.path.isfile(binary_path):
+                    print("Error: Binary file '{}' not found.".format(binary_path))
+                    return False
 
+                # Command to execute
+                command = [binary_path,
+                        '--nonce', f'"{nonce}"',
+                        '--pubkey_type', 'tendermint/PubKeySecp256k1',
+                        '--pubkey_value', f'"{account}"',
+                        '--signature', f'"{social_token}"']
+
+                # Execute the command
+                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout, stderr = process.communicate()
+                exit_code = process.returncode
+
+                # Output stdout, stderr, and exit code
+                std_out_string = stdout.decode()
+                std_err_string = stderr.decode()
+                concatenated_output = std_out_string + std_err_string
+                print("STDOUT:", std_out_string)
+                print("STDERR:", std_err_string)
+                print("Exit Code:", exit_code)
+                ret_value = exit_code == 0 and (string_to_check in concatenated_output) # 0 exit code is a valid response
+                print("returning", ret_value)
+                return ret_value 
+
+            except Exception:
+                return False
         else:
             # Unsupported wallet type
             return False

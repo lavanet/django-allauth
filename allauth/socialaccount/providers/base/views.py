@@ -17,8 +17,8 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
-
-
+import logging
+logger = logging.getLogger(__name__)
 Invite = apps.get_model("invites", "Invite")
 
 
@@ -88,6 +88,7 @@ class WalletLoginView(View):
             nonce = self.provider.get_nonce()
 
             if process == "token":
+                logger.error("Got token request")
                 request.session["login_token"] = nonce
                 expires_at = timezone.now() + timedelta(
                     seconds=settings.SOCIALACCOUNT_TOKEN_EXPIRATION * 60 * 60
@@ -123,6 +124,7 @@ class WalletLoginView(View):
                 return JsonResponse({"data": nonce, "success": bool(ret)}, status=200)
 
             if process == "verify":
+                logger.error("Got token request")
                 signature = None
 
                 # Verify the login process using existing tokens

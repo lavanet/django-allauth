@@ -268,9 +268,9 @@ class CryptoWalletProvider(Provider):
     def verify_signature(
         self, account: str, social_token: str, nonce: str, provider_id: str
     ) -> bool:
-        logger.debug("verify_signature", account, social_token, nonce, provider_id)
+        logger.error("verify_signature", account, social_token, nonce, provider_id)
         if provider_id == "metamask": 
-            logger.debug("verify metamask")
+            logger.error("verify metamask")
             if account.startswith("0x"):
                 # This is an Ethereum-based wallet
                 try:
@@ -282,17 +282,17 @@ class CryptoWalletProvider(Provider):
                     return bool(recovered_account_address.lower() == account.lower())
                 except Exception:
                     return False
-            logger.debug("user used an account that doesnt start with 0x", account)
+            logger.error("user used an account that doesnt start with 0x", account)
             return False
         elif provider_id == "keplr":
-            logger.debug("verify keplr")
+            logger.error("verify keplr")
             try:
                 # Path to the binary file
                 binary_path = './third_party/verify_cosmos_signature'
 
                 # Check if the binary file exists
                 if not os.path.isfile(binary_path):
-                    logger.debug("Error: Binary file '{}' not found.".format(binary_path))
+                    logger.error("Error: Binary file '{}' not found.".format(binary_path))
                     return False
 
                 # Command to execute
@@ -311,15 +311,15 @@ class CryptoWalletProvider(Provider):
                 std_out_string = stdout.decode()
                 std_err_string = stderr.decode()
                 concatenated_output = std_out_string + std_err_string
-                logger.debug("STDOUT:", std_out_string)
-                logger.debug("STDERR:", std_err_string)
-                logger.debug("Exit Code:", exit_code)
+                logger.error("STDOUT:", std_out_string)
+                logger.error("STDERR:", std_err_string)
+                logger.error("Exit Code:", exit_code)
                 ret_value = exit_code == 0 and (string_to_check in concatenated_output) # 0 exit code is a valid response
-                logger.debug("returning", ret_value)
+                logger.error("returning", ret_value)
                 return ret_value 
 
             except Exception as e:
-                logger.debug("failed parsing keplr signature", e)
+                logger.error("failed parsing keplr signature", e)
                 return False
         else:
             # Unsupported wallet type

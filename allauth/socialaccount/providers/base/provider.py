@@ -11,7 +11,8 @@ from django.core.exceptions import ImproperlyConfigured
 from django.contrib.auth import get_user_model
 from eth_account.messages import encode_defunct
 from web3 import Web3
-
+import logging
+logger = logging.getLogger(__name__)
 string_to_check = "Signature valid"
 
 def is_uuid(uuid_to_test, version=4):
@@ -267,25 +268,31 @@ class CryptoWalletProvider(Provider):
     def verify_signature(
         self, account: str, social_token: str, nonce: str, provider_id: str
     ) -> bool:
-        if account.startswith("0x"):
-            # This is an Ethereum-based wallet
-            try:
-                w3 = Web3(Web3.HTTPProvider(self.get_app_settings.get("url")))
-                message_hash = encode_defunct(text=social_token)
-                recovered_account_address = w3.eth.account.recover_message(
-                    message_hash, signature=nonce
-                )
-                return bool(recovered_account_address.lower() == account.lower())
-            except Exception:
-                return False
+        logger.debug("verify_signature", account, social_token, nonce, provider_id)
+        if provider_id == "metamask": 
+            logger.debug("verify metamask")
+            if account.startswith("0x"):
+                # This is an Ethereum-based wallet
+                try:
+                    w3 = Web3(Web3.HTTPProvider(self.get_app_settings.get("url")))
+                    message_hash = encode_defunct(text=social_token)
+                    recovered_account_address = w3.eth.account.recover_message(
+                        message_hash, signature=nonce
+                    )
+                    return bool(recovered_account_address.lower() == account.lower())
+                except Exception:
+                    return False
+            logger.debug("user used an account that doesnt start with 0x", account)
+            return False
         elif provider_id == "keplr":
+            logger.debug("verify keplr")
             try:
                 # Path to the binary file
                 binary_path = './third_party/verify_cosmos_signature'
 
                 # Check if the binary file exists
                 if not os.path.isfile(binary_path):
-                    print("Error: Binary file '{}' not found.".format(binary_path))
+                    logger.debug("Error: Binary file '{}' not found.".format(binary_path))
                     return False
 
                 # Command to execute
@@ -304,14 +311,15 @@ class CryptoWalletProvider(Provider):
                 std_out_string = stdout.decode()
                 std_err_string = stderr.decode()
                 concatenated_output = std_out_string + std_err_string
-                print("STDOUT:", std_out_string)
-                print("STDERR:", std_err_string)
-                print("Exit Code:", exit_code)
+                logger.debug("STDOUT:", std_out_string)
+                logger.debug("STDERR:", std_err_string)
+                logger.debug("Exit Code:", exit_code)
                 ret_value = exit_code == 0 and (string_to_check in concatenated_output) # 0 exit code is a valid response
-                print("returning", ret_value)
+                logger.debug("returning", ret_value)
                 return ret_value 
 
-            except Exception:
+            except Exception as e:
+                logger.debug("failed parsing keplr signature", e)
                 return False
         else:
             # Unsupported wallet type

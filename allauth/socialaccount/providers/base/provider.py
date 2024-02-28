@@ -1,3 +1,4 @@
+import logging
 import random
 import string
 import subprocess
@@ -11,9 +12,10 @@ from django.core.exceptions import ImproperlyConfigured
 from django.contrib.auth import get_user_model
 from eth_account.messages import encode_defunct
 from web3 import Web3
-import logging
+
+
 logger = logging.getLogger(__name__)
-string_to_check = "Signature valid"
+
 
 def is_uuid(uuid_to_test, version=4):
     try:
@@ -266,7 +268,12 @@ class CryptoWalletProvider(Provider):
         )
 
     def verify_signature(
-        self, account: str, social_token: str, nonce: str, provider_id: str, public_key: str = None
+        self,
+        account: str,
+        social_token: str,
+        nonce: str,
+        provider_id: str,
+        public_key: str = None,
     ) -> bool:
         # Continue processing the request
         if provider_id in ["metamask", "walletconnect"]:
@@ -282,7 +289,7 @@ class CryptoWalletProvider(Provider):
                 except Exception:
                     return False
             return False
-        elif provider_id == "keplr":
+        elif account.startswith("cosmos"):
             if not public_key:
                 return False
 
@@ -292,18 +299,28 @@ class CryptoWalletProvider(Provider):
 
                 # Check if the binary file exists
                 if not os.path.isfile(binary_path):
-                    logger.error("Error: Binary file '{}' not found.".format(binary_path))
+                    logger.error(
+                        "Error: Binary file '{}' not found.".format(binary_path)
+                    )
                     return False
 
                 # Command to execute
-                command = [binary_path,
-                        '--nonce', f'{social_token}',
-                        '--pubkey_type', 'tendermint/PubKeySecp256k1',
-                        '--pubkey_value', f'{public_key}',
-                        '--signature', f'{nonce}']
+                command = [
+                    binary_path,
+                    "--nonce",
+                    f"{social_token}",
+                    "--pubkey_type",
+                    "tendermint/PubKeySecp256k1",
+                    "--pubkey_value",
+                    f"{public_key}",
+                    "--signature",
+                    f"{nonce}",
+                ]
 
                 # Execute the command
-                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                process = subprocess.Popen(
+                    command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
                 stdout, stderr = process.communicate()
                 exit_code = process.returncode
 
@@ -311,7 +328,9 @@ class CryptoWalletProvider(Provider):
                 std_out_string = stdout.decode()
                 std_err_string = stderr.decode()
                 concatenated_output = std_out_string + std_err_string
-                ret_value = exit_code == 0 and (string_to_check in concatenated_output) # 0 exit code is a valid response
+                ret_value = exit_code == 0 and (
+                    "Signature valid" in concatenated_output
+                )  # 0 exit code is a valid response
                 return ret_value
 
             except Exception as e:

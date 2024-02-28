@@ -140,7 +140,9 @@ class WalletLoginView(View):
                             account, signature, nonce, self.provider_id, public_key
                         ):
                             request.session["login_token"] = nonce
-                            login = self.provider.sociallogin_from_response(request, data)
+                            login = self.provider.sociallogin_from_response(
+                                request, data
+                            )
                             login.state = SocialLogin.state_from_request(request)
                             complete_social_login(request, login)
                             return JsonResponse(
@@ -150,7 +152,8 @@ class WalletLoginView(View):
 
                         else:
                             return JsonResponse(
-                                {"data": "Wrong signature", "success": False}, status=400
+                                {"data": "Wrong signature", "success": False},
+                                status=400,
                             )
                     else:
                         return JsonResponse(

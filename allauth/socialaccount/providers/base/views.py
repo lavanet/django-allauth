@@ -76,6 +76,115 @@ class WalletLoginView(View):
 
         return self.login(request, form.cleaned_data)
 
+    def process_token(self, request, data, invite_code, account, cache_key):
+        nonce = self.provider.get_nonce()
+
+        views_debug_print(f"djang-allauth process_token. Nonce: {nonce} ")
+        
+        request.session["login_token"] = nonce
+
+        # Create a social login object from the response
+        login = self.provider.sociallogin_from_response(request, data)
+        views_debug_print(f'djang-allauth process_token. login: {login}')
+
+        if invite_code:
+            if invite := Invite.objects.filter(code=invite_code).last():
+                views_debug_print(f'djang-allauth process_token. invite: {invite}')
+                if not invite.is_valid():
+                    views_debug_print('djang-allauth login. Invalid invitation')
+                    return JsonResponse(
+                        {"data": "No valid invitation", "success": False},
+                        status=401,
+                    )
+        else:
+            if not SocialAccount.objects.filter(uid=account).exists():
+                views_debug_print('djang-allauth process_token. Non existing account')
+                return JsonResponse(
+                    {"data": "Non existing account", "success": False},
+                    status=401,
+                )
+
+        login.state = SocialLogin.state_from_request(request)
+        views_debug_print(f'djang-allauth process_token. login.state: {login.state}')
+
+        cache.set(cache_key, nonce, timeout=600)
+        views_debug_print('djang-allauth process_token. Cache set')
+
+        ret = complete_social_login(request, login)
+        views_debug_print(f'djang-allauth process_token. ret: {ret}')
+
+        # This is two-step login. Unless we verified the user's signature (in the "verify" step)
+        # we shouldn't log him in
+        logout(request)
+        views_debug_print('djang-allauth process_token. User logged out')
+
+        return JsonResponse({"data": nonce, "success": bool(ret)}, status=200)
+    
+    def process_verify(self, request, cache_key, account, data):
+        public_key = data["public_key"]
+        views_debug_print(f"djang-allauth process_verify. Public Key: {public_key}")
+
+        nonce_token_from_request = data.get("base_login_token", "")
+        views_debug_print(f"djang-allauth process_verify. Base Login Token: {nonce_token_from_request}")
+
+        nonce_token_from_cache = cache.get(cache_key)
+        views_debug_print(f"djang-allauth process_verify. Cache Key: {cache_key}, Nonce Token from Cache: {nonce_token_from_cache}")
+
+        if not nonce_token_from_cache and not nonce_token_from_request:
+            views_debug_print(f"djang-allauth process_verify. No existing tokens. Nonce Token from Request: {nonce_token_from_request}, Nonce Token from Cache: {nonce_token_from_cache}")
+            return JsonResponse(
+                {"data": "No existing tokens", "success": False}, status=400
+            )
+
+        signed_token = request.session.get("login_token")
+        views_debug_print(f"djang-allauth process_verify. Signed Token: {signed_token}")
+
+        if not signed_token:
+            views_debug_print(f"djang-allauth process_verify. No signature. Signed Token: {signed_token}")
+            return JsonResponse(
+                {"data": "No signature", "success": False}, status=400
+            )
+
+        signature_verified = False
+        if nonce_token_from_request:
+            if self.provider.verify_signature(
+                account, nonce_token_from_request, signed_token, self.provider_id, public_key
+            ):
+                views_debug_print('djang-allauth process_verify verify. Token was nonce_token_from_request.', nonce_token_from_request)
+                signature_verified = True
+            else:
+                views_debug_print('djang-allauth process_verify verify. Failed to verify signature with nonce_token_from_request.', nonce_token_from_request)
+
+        if not signature_verified and nonce_token_from_cache != nonce_token_from_request:
+            if nonce_token_from_cache:
+                if self.provider.verify_signature(
+                    account, nonce_token_from_cache, signed_token, self.provider_id, public_key
+                ):
+                    views_debug_print('djang-allauth process_verify verify. Token was nonce_token_from_cache.', nonce_token_from_cache)
+                    signature_verified = True
+                else:
+                    views_debug_print('djang-allauth process_verify verify. Failed to verify signature with nonce_token_from_cache.', nonce_token_from_cache)
+
+        if not signature_verified:
+            views_debug_print('djang-allauth process_verify verify. Signature verification failed.')
+            return JsonResponse(
+                {"data": "Wrong signature", "success": False},
+                status=400,
+            )
+
+        views_debug_print('djang-allauth process_verify verify. Verify flow passed')
+
+        login = self.provider.sociallogin_from_response(
+            request, data
+        )
+
+        login.state = SocialLogin.state_from_request(request)
+        complete_social_login(request, login)
+        return JsonResponse(
+            {"data": str(login.user.profile.uid), "success": True},
+            status=200,
+        )
+    
     def login(self, request: HttpRequest, data: dict[str, str]) -> JsonResponse:
         """
         Process wallet login based on the provided data.
@@ -84,15 +193,11 @@ class WalletLoginView(View):
         try:
             process = data["process"]
             account = data["account"]
-            public_key = data["public_key"]
             invite_code = data["invite_code"]
-            base_login_token = data.get("base_login_token", "")
 
             views_debug_print(f"djang-allauth login. Process: {process}")
             views_debug_print(f"djang-allauth login. Account: {account}")
-            views_debug_print(f"djang-allauth login. Public Key: {public_key}")
             views_debug_print(f"djang-allauth login. Invite Code: {invite_code}")
-            views_debug_print(f"djang-allauth login. Base Login Token: {base_login_token}")
 
             # Store user ID and process type in request
             request.uid = account
@@ -111,95 +216,13 @@ class WalletLoginView(View):
 
             views_debug_print(f"djang-allauth login. Cache Key: {cache_key} ")
             
-            nonce = self.provider.get_nonce()
-
-            views_debug_print(f"djang-allauth login. Nonce: {nonce} ")
-
             if process == "token":
-                request.session["login_token"] = nonce
-
-                # Create a social login object from the response
-                login = self.provider.sociallogin_from_response(request, data)
-                views_debug_print(f'djang-allauth login. login: {login}')
-
-                if invite_code:
-                    if invite := Invite.objects.filter(code=invite_code).last():
-                        views_debug_print(f'djang-allauth login. invite: {invite}')
-                        if not invite.is_valid():
-                            views_debug_print('djang-allauth login. Invalid invitation')
-                            return JsonResponse(
-                                {"data": "No valid invitation", "success": False},
-                                status=401,
-                            )
-                else:
-                    if not SocialAccount.objects.filter(uid=account).exists():
-                        views_debug_print('djang-allauth login. Non existing account')
-                        return JsonResponse(
-                            {"data": "Non existing account", "success": False},
-                            status=401,
-                        )
-
-                login.state = SocialLogin.state_from_request(request)
-                views_debug_print(f'djang-allauth login. login.state: {login.state}')
-
-                cache.set(cache_key, nonce, timeout=600)
-                views_debug_print('djang-allauth login. Cache set')
-
-                ret = complete_social_login(request, login)
-                views_debug_print(f'djang-allauth login. ret: {ret}')
-
-                # This is two-step login. Unless we verified the user's signature (in the "verify" step)
-                # we shouldn't log him in
-                logout(request)
-                views_debug_print('djang-allauth login. User logged out')
-
-                return JsonResponse({"data": nonce, "success": bool(ret)}, status=200)
-
+                response = self.process_token(request, data, invite_code, account, cache_key)
+                return response
+                
             if process == "verify":
-
-                cache_token = cache.get(cache_key)
-
-                if cache_token:
-                    views_debug_print('djang-allauth login verify. Token was picked from cache.', cache_token)
-                    token = cache_token
-                else:
-                    views_debug_print('djang-allauth login verify. base_login_token was used.', base_login_token)
-                    token = base_login_token
-
-                signature = None
-
-                # Verify the login process using existing tokens
-                if token:
-                    signature = token
-                    if signature:
-                        nonce = request.session.get("login_token")
-                        if self.provider.verify_signature(
-                            account, signature, nonce, self.provider_id, public_key
-                        ):
-                            request.session["login_token"] = nonce
-                            login = self.provider.sociallogin_from_response(
-                                request, data
-                            )
-                            login.state = SocialLogin.state_from_request(request)
-                            complete_social_login(request, login)
-                            return JsonResponse(
-                                {"data": str(login.user.profile.uid), "success": True},
-                                status=200,
-                            )
-
-                        else:
-                            return JsonResponse(
-                                {"data": "Wrong signature", "success": False},
-                                status=400,
-                            )
-                    else:
-                        return JsonResponse(
-                            {"data": "No signature", "success": False}, status=400
-                        )
-                else:
-                    return JsonResponse(
-                        {"data": "No existing tokens", "success": False}, status=400
-                    )
+                response = self.process_verify(request, cache_key, account, data)
+                return response
 
             return JsonResponse({"data": "Wrong process", "success": False}, status=400)
 

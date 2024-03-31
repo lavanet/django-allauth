@@ -25,11 +25,14 @@ def is_uuid(uuid_to_test, version=4):
         return False
     return True
 
-ALLAUTH_VERBOSE_DEBUG = os.getenv('ALLAUTH_VERBOSE_DEBUG', 'False') == 'True'
+
+ALLAUTH_VERBOSE_DEBUG = os.getenv("ALLAUTH_VERBOSE_DEBUG", "False") == "True"
+
 
 def provider_debug_print(*args):
     if ALLAUTH_VERBOSE_DEBUG:
         print(*args)
+
 
 class ProviderException(Exception):
     pass
@@ -90,15 +93,17 @@ class Provider(object):
 
         # NOTE: Avoid loading models at top due to registry boot...
         from allauth.socialaccount.adapter import get_adapter
-        from allauth.socialaccount.models import SocialAccount, SocialLogin 
+        from allauth.socialaccount.models import SocialAccount, SocialLogin
 
         adapter = get_adapter()
 
         # this is what gets sent under "account" for /login/
         uid = self.extract_uid(response)
 
-        provider_debug_print(f'---------------------------------')
-        provider_debug_print(f'djang-allauth sociallogin_from_response:: start. uid: {uid}')
+        provider_debug_print(f"---------------------------------")
+        provider_debug_print(
+            f"djang-allauth sociallogin_from_response:: start. uid: {uid}"
+        )
 
         if not isinstance(uid, str):
             raise ValueError(f"uid must be a string: {repr(uid)}")
@@ -114,14 +119,14 @@ class Provider(object):
 
         provider_name = self.app.provider_id or self.app.provider
 
-        provider_debug_print(f'djang-allauth sociallogin_from_response:: provider: {provider_name}')
+        provider_debug_print(
+            f"djang-allauth sociallogin_from_response:: provider: {provider_name}"
+        )
 
         socialaccount = SocialAccount(
             extra_data=extra_data,
             uid=uid,
-            provider=provider_name
-            if self.app
-            else self.id,
+            provider=provider_name if self.app else self.id,
         )
 
         email_addresses = self.extract_email_addresses(response)
@@ -136,31 +141,41 @@ class Provider(object):
 
         try:
             user_hash = response.get("user_hash", "")
-            provider_debug_print(f'djang-allauth sociallogin_from_response:: user_hash: {user_hash}')
+            provider_debug_print(
+                f"djang-allauth sociallogin_from_response:: user_hash: {user_hash}"
+            )
 
             if is_uuid(user_hash):
                 existing_user = (
                     get_user_model().objects.filter(profile__uid=user_hash).last()
                 )
-                provider_debug_print(f'djang-allauth sociallogin_from_response:: existing_user: {existing_user}')
+                provider_debug_print(
+                    f"djang-allauth sociallogin_from_response:: existing_user: {existing_user}"
+                )
 
                 if existing_user:
                     name_parts = (common_fields.get("name") or "").partition(" ")
-                    provider_debug_print(f'djang-allauth sociallogin_from_response:: name_parts: {name_parts}')
+                    provider_debug_print(
+                        f"djang-allauth sociallogin_from_response:: name_parts: {name_parts}"
+                    )
 
                     existing_user.first_name = name_parts[0]
                     existing_user.last_name = name_parts[2]
                     existing_user.save()
-                    provider_debug_print('djang-allauth sociallogin_from_response:: User saved')
+                    provider_debug_print(
+                        "djang-allauth sociallogin_from_response:: User saved"
+                    )
 
                     existing_user.profile.twitter_id = common_fields.get("username")
                     existing_user.profile.twitter_email = common_fields.get("email")
                     existing_user.profile.avatar = socialaccount.get_avatar_url()
                     existing_user.profile.save()
-                    provider_debug_print('djang-allauth sociallogin_from_response:: Profile saved')
+                    provider_debug_print(
+                        "djang-allauth sociallogin_from_response:: Profile saved"
+                    )
 
         except Exception as e:
-            provider_debug_print(f'djang-allauth sociallogin_from_response::', e)
+            provider_debug_print(f"djang-allauth sociallogin_from_response::", e)
 
         user = sociallogin.user = adapter.new_user(request, sociallogin)
         user.set_unusable_password()
@@ -316,7 +331,6 @@ class CryptoWalletProvider(Provider):
                 except Exception:
                     return False
             return False
-        
 
         elif account.startswith("cosmos"):
             if not public_key:
@@ -365,19 +379,20 @@ class CryptoWalletProvider(Provider):
             except Exception as e:
                 logger.exception("failed parsing keplr signature", e)
                 return False
-            
-        
+
         elif provider_id in ["near"]:
-            provider_debug_print(f'provider.py near:: provider_id: {provider_id}')
+            provider_debug_print(f"provider.py near:: provider_id: {provider_id}")
 
             if not public_key:
-                provider_debug_print('provider.py near:: public_key is not provided')
+                provider_debug_print("provider.py near:: public_key is not provided")
                 return False
 
             try:
                 # Path to the binary file
-                binary_path = self.get_app_settings.get("near_signature_verifier_binary")
-                provider_debug_print(f'provider.py near:: binary_path: {binary_path}')
+                binary_path = self.get_app_settings.get(
+                    "near_signature_verifier_binary"
+                )
+                provider_debug_print(f"provider.py near:: binary_path: {binary_path}")
 
                 # Check if the binary file exists
                 if not os.path.isfile(binary_path):
@@ -389,12 +404,15 @@ class CryptoWalletProvider(Provider):
                 # Command to execute
                 command = [
                     binary_path,
-                    f"--publicKey", public_key,
-                    f"--signature", nonce,
-                    f"--message", social_token,
+                    f"--publicKey",
+                    public_key,
+                    f"--signature",
+                    nonce,
+                    f"--message",
+                    social_token,
                 ]
-                
-                provider_debug_print(f'provider.py near:: command: {command}')
+
+                provider_debug_print(f"provider.py near:: command: {command}")
 
                 # Execute the command
                 process = subprocess.Popen(
@@ -405,25 +423,30 @@ class CryptoWalletProvider(Provider):
 
                 # Output stdout, stderr, and exit code
                 std_out_string = stdout.decode()
-                provider_debug_print(f'provider.py near:: std_out_string: {std_out_string}')
+                provider_debug_print(
+                    f"provider.py near:: std_out_string: {std_out_string}"
+                )
 
                 std_err_string = stderr.decode()
-                provider_debug_print(f'provider.py near:: std_err_string: {std_err_string}')
+                provider_debug_print(
+                    f"provider.py near:: std_err_string: {std_err_string}"
+                )
 
                 concatenated_output = std_out_string + std_err_string
-                provider_debug_print(f'provider.py near:: concatenated_output: {concatenated_output}')
-                provider_debug_print(f'provider.py near:: exit_code: {exit_code}')
+                provider_debug_print(
+                    f"provider.py near:: concatenated_output: {concatenated_output}"
+                )
+                provider_debug_print(f"provider.py near:: exit_code: {exit_code}")
 
                 ret_value = exit_code == 0 and (
                     "Signature is valid" in concatenated_output
                 )  # 0 exit code is a valid response
-                provider_debug_print(f'provider.py:: ret_value: {ret_value}')
+                provider_debug_print(f"provider.py:: ret_value: {ret_value}")
                 return ret_value
 
             except Exception as e:
                 logger.exception("Near:: failed parsing near signature", e)
                 return False
-
 
         else:
             # Unsupported wallet type
@@ -441,4 +464,3 @@ class CryptoWalletProvider(Provider):
         if "account" not in data:
             raise ProviderException(f"{self.id} error", data)
         return str(data["account"])
-

@@ -114,8 +114,6 @@ def user_field(user, field, *args, commit=False):
 
 
 def user_username(user, *args, commit=False):
-    if args and not app_settings.PRESERVE_USERNAME_CASING and args[0]:
-        args = [args[0].lower()]
     return user_field(user, app_settings.USER_MODEL_USERNAME_FIELD, *args)
 
 
@@ -450,10 +448,7 @@ def filter_users_by_username(*username):
         ret = get_user_model()._default_manager.filter(q)
     else:
         ret = get_user_model()._default_manager.filter(
-            **{
-                app_settings.USER_MODEL_USERNAME_FIELD
-                + "__in": [u.lower() for u in username]
-            }
+            **{app_settings.USER_MODEL_USERNAME_FIELD + "__in": [u for u in username]}
         )
     return ret
 
@@ -487,7 +482,7 @@ def filter_users_by_email(email, is_active=None, prefer_verified=False):
         if _unicode_ci_compare(e.email, email):
             users.append(e.user)
     if app_settings.USER_MODEL_EMAIL_FIELD and not is_verified:
-        q_dict = {app_settings.USER_MODEL_EMAIL_FIELD + "__iexact": email}
+        q_dict = {app_settings.USER_MODEL_EMAIL_FIELD: email}
         user_qs = User.objects.filter(**q_dict)
         for user in user_qs.iterator():
             user_email = getattr(user, app_settings.USER_MODEL_EMAIL_FIELD)

@@ -48,14 +48,17 @@ class WalletLoginView(View):
         """
         Override dispatch method to set up necessary variables before processing the request.
         """
-        # Get adapter instance for social account handling
-        self.adapter = get_adapter(request)
 
-        # Retrieve the application configuration for the given provider
-        self.app = self.adapter.get_app(request, provider=self.provider_id)
+        # Only preload stuff when the request is POST request (avoid having a heavy OPTIONS request)
+        if request.method == "POST":
+            # Get adapter instance for social account handling
+            self.adapter = get_adapter(request)
 
-        # Get the provider instance
-        self.provider = self.app.get_provider(request)
+            # Retrieve the application configuration for the given provider
+            self.app = self.adapter.get_app(request, provider=self.provider_id)
+
+            # Get the provider instance
+            self.provider = self.app.get_provider(request)
 
         try:
             return super().dispatch(request)

@@ -37,6 +37,7 @@ class SocialApp(models.Model):
         verbose_name=_("provider"),
         max_length=30,
         choices=providers.registry.as_choices(),
+        db_index=True,
     )
     # For providers that support subproviders, such as OpenID Connect and SAML,
     # this ID identifies that instance. SocialAccount's originating from app
@@ -46,6 +47,7 @@ class SocialApp(models.Model):
         verbose_name=_("provider ID"),
         max_length=200,
         blank=True,
+        db_index=True,
     )
     name = models.CharField(verbose_name=_("name"), max_length=40)
     client_id = models.CharField(

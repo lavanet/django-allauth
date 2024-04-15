@@ -88,7 +88,7 @@ class WalletLoginView(View):
 
         views_debug_print(f"djang-allauth process_token. Nonce: {nonce} ")
 
-        request.session["login_token"] = nonce
+        # request.session["login_token"] = nonce
 
         # Create a social login object from the response
         login = self.provider.sociallogin_from_response(request, data)
@@ -114,8 +114,11 @@ class WalletLoginView(View):
         login.state = SocialLogin.state_from_request(request)
         views_debug_print(f"djang-allauth process_token. login.state: {login.state}")
 
-        cache.set(cache_key, nonce, timeout=600)
-        views_debug_print("djang-allauth process_token. Cache set")
+        # Reddis - cache set here - removed after this bug:
+        # https://test-mn4.sentry.io/issues/5197830041/?project=4507085406339072&referrer=issue-stream&statsPeriod=24h&stream_index=1
+        #
+        # cache.set(cache_key, nonce, timeout=600)
+        # views_debug_print("djang-allauth process_token. Cache set")
 
         ret = complete_social_login(request, login)
         views_debug_print(f"djang-allauth process_token. ret: {ret}")
@@ -136,21 +139,22 @@ class WalletLoginView(View):
             f"djang-allauth process_verify. Base Login Token: {nonce_token_from_request}"
         )
 
-        nonce_token_from_cache = cache.get(cache_key)
-        views_debug_print(
-            f"djang-allauth process_verify. Cache Key: {cache_key}, Nonce Token from Cache: {nonce_token_from_cache}"
-        )
-
-        if not nonce_token_from_cache and not nonce_token_from_request:
+        # nonce_token_from_cache = cache.get(cache_key)
+        # views_debug_print(
+        #     f"djang-allauth process_verify. Cache Key: {cache_key}, Nonce Token from Cache: {nonce_token_from_cache}"
+        # ) 
+    
+        # if not nonce_token_from_cache and not nonce_token_from_request:
+        if not nonce_token_from_request:
             views_debug_print(
-                f"djang-allauth process_verify. No existing tokens. Nonce Token from Request: {nonce_token_from_request}, Nonce Token from Cache: {nonce_token_from_cache}"
+                f"djang-allauth process_verify. No existing tokens. Nonce Token from Request: {nonce_token_from_request}" #, Nonce Token from Cache: {nonce_token_from_cache}"
             )
             return JsonResponse(
                 {"data": "No existing tokens", "success": False}, status=400
             )
 
-        signed_token = request.session.get("login_token")
-        views_debug_print(f"djang-allauth process_verify. Signed Token: {signed_token}")
+        signed_token = data.get("login_token") # request.session.get("login_token")
+        views_debug_print(f"djang-allauth process_verify. Signed Token: {signed_token}") 
 
         if not signed_token:
             views_debug_print(
@@ -178,28 +182,28 @@ class WalletLoginView(View):
                     nonce_token_from_request,
                 )
 
-        if (
-            not signature_verified
-            and nonce_token_from_cache != nonce_token_from_request
-        ):
-            if nonce_token_from_cache:
-                if self.provider.verify_signature(
-                    account,
-                    nonce_token_from_cache,
-                    signed_token,
-                    self.provider_id,
-                    public_key,
-                ):
-                    views_debug_print(
-                        "djang-allauth process_verify verify. Token was nonce_token_from_cache.",
-                        nonce_token_from_cache,
-                    )
-                    signature_verified = True
-                else:
-                    views_debug_print(
-                        "djang-allauth process_verify verify. Failed to verify signature with nonce_token_from_cache.",
-                        nonce_token_from_cache,
-                    )
+        # if (
+        #     not signature_verified
+        #     and nonce_token_from_cache != nonce_token_from_request
+        # ):
+        #     if nonce_token_from_cache:
+        #         if self.provider.verify_signature(
+        #             account,
+        #             nonce_token_from_cache,
+        #             signed_token,
+        #             self.provider_id,
+        #             public_key,
+        #         ):
+        #             views_debug_print(
+        #                 "djang-allauth process_verify verify. Token was nonce_token_from_cache.",
+        #                 nonce_token_from_cache,
+        #             )
+        #             signature_verified = True
+        #         else:
+        #             views_debug_print(
+        #                 "djang-allauth process_verify verify. Failed to verify signature with nonce_token_from_cache.",
+        #                 nonce_token_from_cache,
+        #             )
 
         if not signature_verified:
             views_debug_print(
@@ -245,16 +249,17 @@ class WalletLoginView(View):
             )
 
             # Handle login token if present
-            if "login_token" in data:
-                request.session["login_token"] = data["login_token"]
+            # if "login_token" in data:
+            #     request.session["login_token"] = data["login_token"]
 
-            views_debug_print(
-                f"djang-allauth login. Login Token: {request.session.get('login_token')}"
-            )
+            # views_debug_print(
+            #     f"djang-allauth login. Login Token: {request.session.get('login_token')}"
+            # )
 
-            cache_key = f"allauth.wallet.{account}"
+            cache_key = "Nothing"
 
-            views_debug_print(f"djang-allauth login. Cache Key: {cache_key} ")
+            # cache_key = f"allauth.wallet.{account}"
+            # views_debug_print(f"djang-allauth login. Cache Key: {cache_key} ")
 
             if process == "token":
                 response = self.process_token(

@@ -317,8 +317,11 @@ class CryptoWalletProvider(Provider):
         provider_id: str,
         public_key: str = None,
     ) -> bool:
+
+        # print("provider_id", provider_id)
+
         # Continue processing the request
-        if provider_id in ["metamask", "walletconnect"]:
+        if provider_id in ["metamask"]: #, "walletconnect"]:
             if account.startswith("0x"):
                 # This is an Ethereum-based wallet
                 try:
@@ -332,7 +335,9 @@ class CryptoWalletProvider(Provider):
                     return False
             return False
 
-        elif account.startswith("cosmos"):
+        # elif account.startswith("cosmos"):
+        # else:
+        elif provider_id in ["keplr", "leap"]: 
             if not public_key:
                 return False
 
@@ -380,73 +385,73 @@ class CryptoWalletProvider(Provider):
                 logger.exception("failed parsing keplr signature", e)
                 return False
 
-        elif provider_id in ["near"]:
-            provider_debug_print(f"provider.py near:: provider_id: {provider_id}")
+        # elif provider_id in ["near"]:
+        #     provider_debug_print(f"provider.py near:: provider_id: {provider_id}")
 
-            if not public_key:
-                provider_debug_print("provider.py near:: public_key is not provided")
-                return False
+        #     if not public_key:
+        #         provider_debug_print("provider.py near:: public_key is not provided")
+        #         return False
 
-            try:
-                # Path to the binary file
-                binary_path = self.get_app_settings.get(
-                    "near_signature_verifier_binary"
-                )
-                provider_debug_print(f"provider.py near:: binary_path: {binary_path}")
+        #     try:
+        #         # Path to the binary file
+        #         binary_path = self.get_app_settings.get(
+        #             "near_signature_verifier_binary"
+        #         )
+        #         provider_debug_print(f"provider.py near:: binary_path: {binary_path}")
 
-                # Check if the binary file exists
-                if not os.path.isfile(binary_path):
-                    logger.error(
-                        "Near:: Error: Binary file '{}' not found.".format(binary_path)
-                    )
-                    return False
+        #         # Check if the binary file exists
+        #         if not os.path.isfile(binary_path):
+        #             logger.error(
+        #                 "Near:: Error: Binary file '{}' not found.".format(binary_path)
+        #             )
+        #             return False
 
-                # Command to execute
-                command = [
-                    binary_path,
-                    f"--publicKey",
-                    public_key,
-                    f"--signature",
-                    nonce,
-                    f"--message",
-                    social_token,
-                ]
+        #         # Command to execute
+        #         command = [
+        #             binary_path,
+        #             f"--publicKey",
+        #             public_key,
+        #             f"--signature",
+        #             nonce,
+        #             f"--message",
+        #             social_token,
+        #         ]
 
-                provider_debug_print(f"provider.py near:: command: {command}")
+        #         provider_debug_print(f"provider.py near:: command: {command}")
 
-                # Execute the command
-                process = subprocess.Popen(
-                    command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-                )
-                stdout, stderr = process.communicate()
-                exit_code = process.returncode
+        #         # Execute the command
+        #         process = subprocess.Popen(
+        #             command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        #         )
+        #         stdout, stderr = process.communicate()
+        #         exit_code = process.returncode
 
-                # Output stdout, stderr, and exit code
-                std_out_string = stdout.decode()
-                provider_debug_print(
-                    f"provider.py near:: std_out_string: {std_out_string}"
-                )
+        #         # Output stdout, stderr, and exit code
+        #         std_out_string = stdout.decode()
+        #         provider_debug_print(
+        #             f"provider.py near:: std_out_string: {std_out_string}"
+        #         )
 
-                std_err_string = stderr.decode()
-                provider_debug_print(
-                    f"provider.py near:: std_err_string: {std_err_string}"
-                )
+        #         std_err_string = stderr.decode()
+        #         provider_debug_print(
+        #             f"provider.py near:: std_err_string: {std_err_string}"
+        #         )
 
-                concatenated_output = std_out_string + std_err_string
-                provider_debug_print(
-                    f"provider.py near:: concatenated_output: {concatenated_output}"
-                )
-                provider_debug_print(f"provider.py near:: exit_code: {exit_code}")
+        #         concatenated_output = std_out_string + std_err_string
+        #         provider_debug_print(
+        #             f"provider.py near:: concatenated_output: {concatenated_output}"
+        #         )
+        #         provider_debug_print(f"provider.py near:: exit_code: {exit_code}")
 
-                ret_value = exit_code == 0 and (
-                    "Signature is valid" in concatenated_output
-                )  # 0 exit code is a valid response
-                provider_debug_print(f"provider.py:: ret_value: {ret_value}")
-                return ret_value
+        #         ret_value = exit_code == 0 and (
+        #             "Signature is valid" in concatenated_output
+        #         )  # 0 exit code is a valid response
+        #         provider_debug_print(f"provider.py:: ret_value: {ret_value}")
+        #         return ret_value
 
-            except Exception as e:
-                logger.exception("Near:: failed parsing near signature", e)
-                return False
+        #     except Exception as e:
+        #         logger.exception("Near:: failed parsing near signature", e)
+        #         return False
 
         else:
             # Unsupported wallet type

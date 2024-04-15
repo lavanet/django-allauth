@@ -12,10 +12,11 @@ class WalletLoginForm(Form):
 
     def clean(self):
         cleaned_data = super().clean()
-        login_token = cleaned_data.get("login_token")
-        process = cleaned_data.get("process")
+        # login_token = cleaned_data.get("login_token")
+        # process = cleaned_data.get("process")
 
-        if process == "verify" and not login_token:
-            raise ValidationError("Login token is required when process is 'verify'.")
+        # # if process == "verify" and not login_token:
+        # if process == "verify":
+        #     raise ValidationError("Login token is required when process is 'verify'.")
 
         return cleaned_data

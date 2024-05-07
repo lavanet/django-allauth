@@ -4,7 +4,7 @@ from . import views
 
 urlpatterns = [
     path(
-        "metamask1/login/",
+        "metamask2/login/",
         views.login_with_wallet,
         name="metamask_login",
     ),

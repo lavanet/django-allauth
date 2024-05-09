@@ -217,9 +217,19 @@ class WalletLoginView(View):
         views_debug_print("djang-allauth process_verify verify. Verify flow passed")
 
         login = self.provider.sociallogin_from_response(request, data)
+        if not login or login.user is None or login.user.is_active is False:
+            views_debug_print(
+                "djang-allauth process_verify verify. Your account has been banned"
+            )
+            return JsonResponse(
+                {"error": "Your account has been banned", "success": False},
+                status=200,
+            )
 
         login.state = SocialLogin.state_from_request(request)
+
         complete_social_login(request, login)
+
         return JsonResponse(
             {"data": str(login.user.profile.uid), "success": True},
             status=200,

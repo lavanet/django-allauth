@@ -23,7 +23,6 @@ from allauth.socialaccount.providers.oauth2.views import (
 
 from .provider import GoogleProvider
 
-
 CERTS_URL = "https://www.googleapis.com/oauth2/v1/certs"
 
 IDENTITY_URL = "https://www.googleapis.com/oauth2/v2/userinfo"

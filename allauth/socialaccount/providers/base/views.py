@@ -114,12 +114,6 @@ class WalletLoginView(View):
         login.state = SocialLogin.state_from_request(request)
         views_debug_print(f"djang-allauth process_token. login.state: {login.state}")
 
-        # Reddis - cache set here - removed after this bug:
-        # https://test-mn4.sentry.io/issues/5197830041/?project=4507085406339072&referrer=issue-stream&statsPeriod=24h&stream_index=1
-        #
-        # cache.set(cache_key, nonce, timeout=600)
-        # views_debug_print("djang-allauth process_token. Cache set")
-
         ret = complete_social_login(request, login)
         views_debug_print(f"djang-allauth process_token. ret: {ret}")
 

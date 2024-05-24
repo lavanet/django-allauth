@@ -139,43 +139,56 @@ class Provider(object):
             account=socialaccount, email_addresses=email_addresses
         )
 
-        try:
-            user_hash = response.get("user_hash", "")
+        user_hash = response.get("user_hash", "")
+        provider_debug_print(
+            f"djang-allauth sociallogin_from_response:: user_hash: {user_hash}"
+        )
+            
+        twitter_user_hash_set = False
+
+        if provider_name == "twitter":
+            if user_hash == "" or not is_uuid(user_hash):
+                raise ValueError("Bad twitter login 1")
+            else:
+                twitter_user_hash_set = True
+        
+        existing_user = None
+        if twitter_user_hash_set:
+            existing_user = (
+                get_user_model().objects.filter(profile__uid=user_hash).last()
+            )
             provider_debug_print(
-                f"djang-allauth sociallogin_from_response:: user_hash: {user_hash}"
+                f"djang-allauth sociallogin_from_response:: existing_user: {existing_user}"
             )
 
-            if is_uuid(user_hash):
-                existing_user = (
-                    get_user_model().objects.filter(profile__uid=user_hash).last()
-                )
+            if not existing_user:
+                raise ValueError("Bad twitter login 2")
+    
+        try:
+            if existing_user:
+                name_parts = (common_fields.get("name") or "").partition(" ")
                 provider_debug_print(
-                    f"djang-allauth sociallogin_from_response:: existing_user: {existing_user}"
+                    f"djang-allauth sociallogin_from_response:: name_parts: {name_parts}"
                 )
 
-                if existing_user:
-                    name_parts = (common_fields.get("name") or "").partition(" ")
-                    provider_debug_print(
-                        f"djang-allauth sociallogin_from_response:: name_parts: {name_parts}"
-                    )
+                existing_user.first_name = name_parts[0]
+                existing_user.last_name = name_parts[2]
+                existing_user.save()
+                provider_debug_print(
+                    "djang-allauth sociallogin_from_response:: User saved"
+                )
 
-                    existing_user.first_name = name_parts[0]
-                    existing_user.last_name = name_parts[2]
-                    existing_user.save()
-                    provider_debug_print(
-                        "djang-allauth sociallogin_from_response:: User saved"
-                    )
-
-                    existing_user.profile.twitter_id = common_fields.get("username")
-                    existing_user.profile.twitter_email = common_fields.get("email")
-                    existing_user.profile.avatar = socialaccount.get_avatar_url()
-                    existing_user.profile.save()
-                    provider_debug_print(
-                        "djang-allauth sociallogin_from_response:: Profile saved"
-                    )
+                existing_user.profile.twitter_id = common_fields.get("username")
+                existing_user.profile.twitter_email = common_fields.get("email")
+                existing_user.profile.avatar = socialaccount.get_avatar_url()
+                existing_user.profile.save()
+                provider_debug_print(
+                    "djang-allauth sociallogin_from_response:: Profile saved"
+                )
 
         except Exception as e:
             provider_debug_print(f"djang-allauth sociallogin_from_response::", e)
+            raise ValueError("Bad twitter login 3")
 
         user = sociallogin.user = adapter.new_user(request, sociallogin)
         user.set_unusable_password()

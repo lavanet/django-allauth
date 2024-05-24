@@ -3,7 +3,7 @@ import json
 from django.contrib.auth import get_user_model
 
 from allauth.socialaccount.app_settings import QUERY_EMAIL
-from allauth.socialaccount.providers.oauth.client import OAuth
+from allauth.socialaccount.providers.oauth.client import OAuth, OAuthError
 from allauth.socialaccount.providers.oauth.views import (
     OAuthAdapter,
     OAuthCallbackView,
@@ -36,7 +36,7 @@ class TwitterOAuthAdapter(OAuthAdapter):
     def complete_login(self, request, app, token, response, **kwargs):
         user_hash = kwargs.get("user_hash")
         if user_hash is None: 
-            raise Exception("bad twitter link")
+            raise OAuthError("bad twitter link")
     
         client = TwitterAPI(request, app.client_id, app.secret, self.request_token_url)
         extra_data = client.get_user_info()

@@ -1,42 +1,82 @@
-import logging
-import random
-import string
-import subprocess
-import os
-import re
-
-from uuid import UUID
-
+import sys,os,logging,random,string,subprocess,uuid
+from django.http import JsonResponse
+from cryptography.fernet import Fernet
+from typing import NamedTuple
+from django.http import HttpRequest
 from allauth.socialaccount import app_settings
 from allauth.socialaccount.adapter import get_adapter
 from django.core.exceptions import ImproperlyConfigured
-from django.contrib.auth import get_user_model
 from eth_account.messages import encode_defunct
 from web3 import Web3
 
-
 logger = logging.getLogger(__name__)
-
 
 def is_uuid(uuid_to_test, version=4):
     try:
-        UUID(uuid_to_test, version=version)
+        uuid.UUID(uuid_to_test, version=version)
     except ValueError:
         return False
     return True
 
-
 ALLAUTH_VERBOSE_DEBUG = os.getenv("ALLAUTH_VERBOSE_DEBUG", "False") == "True"
 
-
-def provider_debug_print(*args):
+def provider_base_debug_print(format_string, *values):
     if ALLAUTH_VERBOSE_DEBUG:
-        print(*args)
+        print("base/provider.py", format_string.format(*values))
 
+is_empty_string = lambda x: str(x).strip().lower() in ["none", "", "0", "false", "true"]
 
+# Hardcoded private key
+key = b'Pzz0Gr4VUhuaVzFmwvEK2WPEgxqoLr7N__MN1aWMenQ='  # This should be 32 url-safe base64-encoded bytes
+cipher_suite = Fernet(key)
+class UserServerHashType(NamedTuple):
+    provider: str
+    user_hash: str
+
+class UserServerHashEncoder:
+    @staticmethod
+    def hash(obj: UserServerHashType) -> str:
+        # Concatenate the provider and uid, and convert to bytes
+        combined = f"{obj['provider']}:{obj['user_hash']}".encode()
+
+        # Encrypt the combined string using the private key
+        encrypted = cipher_suite.encrypt(combined)
+
+        # Return the encrypted string as a base64 string
+        return encrypted.decode()
+
+    @staticmethod
+    def unhash(encrypted: str) -> UserServerHashType | None:
+        try:
+            # Convert the base64 string back to bytes
+            encrypted = encrypted.encode()
+
+            # Decrypt the combined string using the private key
+            combined = cipher_suite.decrypt(encrypted)
+
+            # Split the combined string back into provider and uid
+            provider, user_hash = combined.decode().split(":", 1)
+
+            # Return the provider and uid as a UserServerHashType
+            return UserServerHashType(provider=provider, user_hash=user_hash)
+        except Exception as e:
+            provider_base_debug_print(f"Error in unhash: {e}")
+            return None
+
+def decode_user_server_hash(request: HttpRequest) -> UserServerHashType | None:
+    try:
+        # Get the user_server_hash cookie from the request
+        user_server_hash = request.COOKIES.get('user_server_hash')
+
+        if user_server_hash is None or str(user_server_hash).strip() in ["None", "", "0"]:
+            return None
+
+        return UserServerHashEncoder.unhash(user_server_hash)
+    except Exception as e:
+        provider_base_debug_print(f"Error in decode_user_server_hash: {e}")
+        return None
 class ProviderException(Exception):
     pass
-
 
 class Provider(object):
     slug = None
@@ -75,36 +115,10 @@ class Provider(object):
         return app_settings.PROVIDERS.get(self.id, {})
 
     def sociallogin_from_response(self, request, response):
-        """
-        Instantiates and populates a `SocialLogin` model based on the data
-        retrieved in `response`. The method does NOT save the model to the
-        DB.
-
-        Data for `SocialLogin` will be extracted from `response` with the
-        help of the `.extract_uid()`, `.extract_extra_data()`,
-        `.extract_common_fields()`, and `.extract_email_addresses()`
-        methods.
-
-        :param request: a Django `HttpRequest` object.
-        :param response: object retrieved via the callback response of the
-            social auth provider.
-        :return: A populated instance of the `SocialLogin` model (unsaved).
-        """
-
-        # NOTE: Avoid loading models at top due to registry boot...
         from allauth.socialaccount.adapter import get_adapter
-        from allauth.socialaccount.models import SocialAccount, SocialLogin
-
         adapter = get_adapter()
 
-        # this is what gets sent under "account" for /login/
         uid = self.extract_uid(response)
-
-        provider_debug_print(f"---------------------------------")
-        provider_debug_print(
-            f"djang-allauth sociallogin_from_response:: start. uid: {uid}"
-        )
-
         if not isinstance(uid, str):
             raise ValueError(f"uid must be a string: {repr(uid)}")
         if len(uid) > app_settings.UID_MAX_LENGTH:
@@ -113,88 +127,212 @@ class Provider(object):
             )
         if not uid:
             raise ValueError("uid must be a non-empty string")
-
-        extra_data = self.extract_extra_data(response)
-        common_fields = self.extract_common_fields(response)
-
+    
         provider_name = self.app.provider_id or self.app.provider
 
-        provider_debug_print(
-            f"djang-allauth sociallogin_from_response:: provider: {provider_name}"
-        )
-
-        socialaccount = SocialAccount(
-            extra_data=extra_data,
-            uid=uid,
-            provider=provider_name if self.app else self.id,
-        )
-
-        email_addresses = self.extract_email_addresses(response)
-        self.cleanup_email_addresses(
-            common_fields.get("email"),
-            email_addresses,
-            email_verified=common_fields.get("email_verified"),
-        )
-        sociallogin = SocialLogin(
-            account=socialaccount, email_addresses=email_addresses
-        )
-
-        user_hash = response.get("user_hash", "")
-        provider_debug_print(
-            f"djang-allauth sociallogin_from_response:: user_hash: {user_hash}"
-        )
-            
-        twitter_user_hash_set = False
-
-        if provider_name == "twitter":
-            if user_hash == "" or not is_uuid(user_hash):
-                raise ValueError("Bad twitter login 1")
-            else:
-                twitter_user_hash_set = True
+        if provider_name == "google":
+            return self.sociallogin_from_response_google(provider_name, adapter, uid, request, response)
+        elif provider_name == "twitter":
+            return self.sociallogin_from_response_twitter(provider_name, adapter, uid, request, response)
         
-        existing_user = None
-        if twitter_user_hash_set:
-            existing_user = (
-                get_user_model().objects.filter(profile__uid=user_hash).last()
-            )
-            provider_debug_print(
-                f"djang-allauth sociallogin_from_response:: existing_user: {existing_user}"
-            )
+        raise Exception("DjangoAllAuth/providers/base.py - sociallogin_from_response add provider to switch case")
+        
+    def sociallogin_from_response_google(self, provider_name, adapter, uid, request, response):
+        from allauth.socialaccount.models import SocialAccount, SocialLogin
+        from django.contrib.auth.models import User
+        from users.models import UserProfile
 
-            if not existing_user:
-                raise ValueError("Bad twitter login 2")
-    
         try:
-            if existing_user:
-                name_parts = (common_fields.get("name") or "").partition(" ")
-                provider_debug_print(
-                    f"djang-allauth sociallogin_from_response:: name_parts: {name_parts}"
-                )
+            provider_base_debug_print("sociallogin_from_response_google:: Arguments - provider_name: {}, adapter: {}, uid: {}, request: {}, response: {}", provider_name, adapter, uid, request, response)
 
-                existing_user.first_name = name_parts[0]
-                existing_user.last_name = name_parts[2]
-                existing_user.save()
-                provider_debug_print(
-                    "djang-allauth sociallogin_from_response:: User saved"
-                )
+            extra_data = self.extract_extra_data(response)
+            provider_base_debug_print("sociallogin_from_response_google:: Extra data: {}", extra_data)
 
-                existing_user.profile.twitter_id = common_fields.get("username")
-                existing_user.profile.twitter_email = common_fields.get("email")
-                existing_user.profile.avatar = socialaccount.get_avatar_url()
-                existing_user.profile.save()
-                provider_debug_print(
-                    "djang-allauth sociallogin_from_response:: Profile saved"
-                )
+            common_fields = self.extract_common_fields(response)
+            provider_base_debug_print("sociallogin_from_response_google:: Common fields: {}", common_fields)
+
+            if SocialAccount.objects.filter(uid=uid).exclude(provider=provider_name).exists():
+                return JsonResponse({"error": "Uid already exists in the database", "success": False}, status=200)
+
+            socialaccount = SocialAccount.objects.filter(uid=uid, provider=provider_name).first()
+            provider_base_debug_print("sociallogin_from_response_google:: Social account: {}", socialaccount)
+
+            if is_empty_string(uid):
+                return JsonResponse({"error": "Invliad uid: " + str(uid), "success": False}, status=200)
+            
+            email = common_fields.get("email")
+            if is_empty_string(email):
+                return JsonResponse({"error": "Invliad email: " + str(email), "success": False}, status=200)
+            
+            provider_base_debug_print("sociallogin_from_response_google:: Email: {}", email)
+
+            entry_by_uid = User.objects.filter(username=uid).first()
+            provider_base_debug_print("sociallogin_from_response_google:: Entry by uid: {}", entry_by_uid)
+
+            entry_by_email = User.objects.filter(username=email).first()
+            provider_base_debug_print("sociallogin_from_response_google:: Entry by email: {}", entry_by_email)
+
+            if entry_by_uid and entry_by_email:
+                return JsonResponse({"error": "Database conflict with google login - can not login", "success": False}, status=200)
+
+            user_created = False
+            login_user = None
+            if not entry_by_uid and not entry_by_email:
+                user_created = True
+                login_user = User.objects.create(username=uid)
+                provider_base_debug_print("sociallogin_from_response_google:: User created: {}", login_user)
+            else:
+                login_user = entry_by_uid or entry_by_email
+                provider_base_debug_print("sociallogin_from_response_google:: Login user: {}", login_user)
+
+            if not socialaccount and not user_created and login_user.id != socialaccount.user_id:
+                return JsonResponse({"error": "Uid mismatch for social login", "success": False}, status=200)
+
+            provider_base_debug_print("sociallogin_from_response_google:: Social account created", login_user)
+
+            if user_created:
+                login_user.set_password(str(uuid.uuid4()))
+                login_user.set_unusable_password()
+                provider_base_debug_print("sociallogin_from_response_google:: new user created: ", login_user)
+
+            elif not login_user.is_active:
+                provider_base_debug_print("sociallogin_from_response_google:: Your account has been banned")
+                return JsonResponse({"error": "Your account has been banned", "success": False},status=200)
+
+            if not socialaccount:
+                socialaccount = SocialAccount.objects.create(user=login_user, uid=uid, provider=provider_name)
+                provider_base_debug_print("sociallogin_from_response_google:: New social account: {}", socialaccount)
+
+            login_user.profile, profile_created = UserProfile.objects.get_or_create(user=login_user, defaults={'uid': str(uuid.uuid4())})
+
+            if profile_created or is_empty_string(login_user.profile.avatar) or is_empty_string(login_user.profile.nickname):
+                login_user.profile.avatar = SocialAccount(extra_data=extra_data, uid=uid, provider=provider_name).get_avatar_url()
+                
+                if not UserProfile.objects.filter(nickname=email).exists():
+                    login_user.profile.nickname = email
+                
+                login_user.profile.save()
+
+                provider_base_debug_print("sociallogin_from_response_google:: Profile created: {}", login_user.profile)
+
+            provider_base_debug_print("sociallogin_from_response_google:: Social account created", socialaccount)
+
+            sociallogin = SocialLogin(user=login_user, account=socialaccount)
+            provider_base_debug_print("sociallogin_from_response_google:: Social login: {}", sociallogin)
+
+            sociallogin.state = SocialLogin.state_from_request(request)
+            provider_base_debug_print("sociallogin_from_response_google:: Social login state: {}", sociallogin.state)
+
+            if user_created:
+                adapter.populate_user(request, sociallogin, common_fields)
+                login_user.save()
+                socialaccount.save()
+                provider_base_debug_print("sociallogin_from_response_google:: User and social account saved")
+
+            from allauth.socialaccount.helpers import record_authentication, _login_social_account
+            record_authentication(request, sociallogin)
+            _login_social_account(request, sociallogin)
+            provider_base_debug_print("sociallogin_from_response_google:: Authentication recorded and social account logged in")
+
+            return sociallogin
 
         except Exception as e:
-            provider_debug_print(f"djang-allauth sociallogin_from_response::", e)
-            raise ValueError("Bad twitter login 3")
+            print(str(e), file=sys.stderr)
+            return JsonResponse({"error": "An error occurred during login", "success": False}, status=200)
+        
+    def sociallogin_from_response_twitter(self, provider_name, adapter, uid, request, response):
+        from allauth.socialaccount.models import SocialAccount, SocialLogin
+        from users.models import UserProfile
 
-        user = sociallogin.user = adapter.new_user(request, sociallogin)
-        user.set_unusable_password()
-        adapter.populate_user(request, sociallogin, common_fields)
+        try:
+            user_server_hash: UserServerHashType | None = decode_user_server_hash(request)
+            provider_base_debug_print("sociallogin_from_response_twitter:: user_server_hash: {}", user_server_hash)
 
-        return sociallogin
+            if not user_server_hash:
+                return JsonResponse({"error": "Twitter login - invalid user_server_hash in request", "success": False}, status=200)
+
+            existing_user = SocialAccount.objects.filter(uid=user_server_hash.user_hash, provider=user_server_hash.provider).last()
+            provider_base_debug_print("sociallogin_from_response_twitter:: existing_user: {}", existing_user)
+
+            if not existing_user:
+                return JsonResponse({"error": "Twitter login - Error with twitter login 1", "success": False}, status=200)
+
+            if existing_user.user and not existing_user.user.is_active:
+                provider_base_debug_print("sociallogin_from_response_google:: Your account has been banned")
+                return JsonResponse({"error": "Your account has been banned", "success": False}, status=200)
+        
+            common_fields = self.extract_common_fields(response)
+            name_parts = (common_fields.get("name") or "").partition(" ")
+            provider_base_debug_print("sociallogin_from_response_twitter:: name_parts: {}, common_fields:{}", name_parts, common_fields)
+
+            twitter_id = common_fields.get("username")
+            if is_empty_string(twitter_id):
+                return JsonResponse({"error": "twitter id can not be empty", "success": False}, status=200)
+            
+            twitter_email = common_fields.get("email")
+
+            profile, profile_created = UserProfile.objects.get_or_create(user=existing_user.user, defaults={'uid': str(uuid.uuid4())})
+
+            twitter_id_exists = not is_empty_string(profile.twitter_id)
+            twitter_id_linked = UserProfile.objects.filter(twitter_id=twitter_id).exists()
+            twitter_email_linked = not is_empty_string(twitter_email) and UserProfile.objects.filter(twitter_email=twitter_email).exists()
+            twitter_id_matches = twitter_id == profile.twitter_id
+            twitter_email_matches = not is_empty_string(twitter_email) and twitter_email == profile.twitter_email
+
+            if not twitter_id_exists and twitter_id_linked:
+                return JsonResponse({"error": f"twitter id {twitter_id} already linked in the db", "success": False}, status=200)
+
+            if not twitter_id_exists and twitter_email_linked:
+                return JsonResponse({"error": f"twitter email {twitter_email} already linked in the db", "success": False}, status=200)
+
+            if twitter_id_exists and not twitter_id_matches:
+                return JsonResponse({"error": f"existing user does not match twitter id: {twitter_id}", "success": False}, status=200)
+
+            if twitter_id_exists and not twitter_email_matches:
+                return JsonResponse({"error": f"existing user does not match twitter email: {twitter_email}", "success": False}, status=200)
+
+            if is_empty_string(existing_user.user.first_name) or is_empty_string(existing_user.user.last_name):
+                existing_user.user.first_name = name_parts[0]
+                existing_user.user.last_name = name_parts[2]
+                existing_user.user.save()
+
+            extra_data = self.extract_extra_data(response)
+            provider_base_debug_print("sociallogin_from_response_twitter:: User saved. extra_data: {}", extra_data)
+
+            updated = False
+
+            if profile_created or is_empty_string(profile.twitter_id):
+                profile.twitter_id = twitter_id
+                updated = True
+
+            if profile_created or is_empty_string(profile.twitter_email):
+                profile.twitter_email = twitter_email
+                updated = True
+
+            if profile_created or is_empty_string(profile.avatar):
+                profile.avatar = SocialAccount(extra_data=extra_data, uid=uid, provider="twitter").get_avatar_url()
+                updated = True
+
+            if profile_created or is_empty_string(profile.nickname):
+                nickname = twitter_id
+                if not is_empty_string(common_fields.get("name")):
+                    nickname = common_fields.get("name")
+                    if not UserProfile.objects.filter(nickname=nickname).exists():
+                        profile.nickname = nickname
+                        updated = True
+
+            if updated:
+                profile.save()
+
+            provider_base_debug_print("sociallogin_from_response_twitter:: twitter_id: {}", twitter_id)
+            provider_base_debug_print("sociallogin_from_response_twitter:: twitter_email: {}", twitter_email)
+            provider_base_debug_print("sociallogin_from_response_twitter:: avatar: {}", existing_user.user.profile.avatar)
+
+            return SocialLogin(user=existing_user.user, account=existing_user)
+
+        except Exception as e:
+            print(str(e), file=sys.stderr)
+            return JsonResponse({"error": "An error occurred during Twitter login", "success": False}, status=200)
 
     def extract_uid(self, data):
         """
@@ -482,3 +620,4 @@ class CryptoWalletProvider(Provider):
         if "account" not in data:
             raise ProviderException(f"{self.id} error", data)
         return str(data["account"])
+

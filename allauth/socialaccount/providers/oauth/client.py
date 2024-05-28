@@ -5,6 +5,7 @@ Inspired by:
     http://github.com/facebook/tornado/blob/master/tornado/auth.py
 """
 
+import os
 from urllib.parse import parse_qsl, urlparse
 
 from django.http import HttpResponseRedirect
@@ -34,6 +35,11 @@ def get_token_prefix(url):
 class OAuthError(Exception):
     pass
 
+ALLAUTH_VERBOSE_DEBUG = os.getenv("ALLAUTH_VERBOSE_DEBUG", "False") == "True"
+
+def provider_debug_print(*args):
+    if ALLAUTH_VERBOSE_DEBUG:
+        print("oauth/client.py", *args)
 
 class OAuthClient(object):
     def __init__(
@@ -69,6 +75,8 @@ class OAuthClient(object):
         Obtain a temporary request token to authorize an access token and to
         sign the request to obtain the access token
         """
+        provider_debug_print("_get_request_token called")
+
         if self.request_token is None:
             get_params = {}
             if self.parameters:
@@ -78,7 +86,16 @@ class OAuthClient(object):
             )
             rt_url = self.request_token_url + "?" + urlencode(get_params)
             oauth = OAuth1(self.consumer_key, client_secret=self.consumer_secret)
+
+            provider_debug_print("rt_url: ", rt_url)
+            if ALLAUTH_VERBOSE_DEBUG:
+                provider_debug_print("oauth: ", vars(oauth))
+
             response = get_adapter().get_requests_session().post(url=rt_url, auth=oauth)
+
+            provider_debug_print("response status code: ", response.status_code)
+            provider_debug_print("response text: ", response.text)
+
             if response.status_code not in [200, 201]:
                 raise OAuthError(
                     _(
@@ -91,6 +108,9 @@ class OAuthClient(object):
             self.request.session[
                 "oauth_%s_request_token" % get_token_prefix(self.request_token_url)
             ] = self.request_token
+
+        provider_debug_print("request_token: ", self.request_token)
+
         return self.request_token
 
     def get_access_token(self):

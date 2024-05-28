@@ -277,6 +277,15 @@ class SocialLogin(object):
             setup_user_email(request, user, self.email_addresses)
 
     @property
+    def is_existing_wallet(self):
+        """When `False`, this social login represents a temporary account, not
+        yet backed by a database record.
+        """
+        if self.user.pk is None:
+            return False
+        return get_user_model().objects.filter(pk=self.user.pk).exists()
+    
+    @property
     def is_existing(self):
         """When `False`, this social login represents a temporary account, not
         yet backed by a database record.
@@ -293,6 +302,10 @@ class SocialLogin(object):
             self._lookup_by_email()
 
     def _lookup_by_socialaccount(self):
+        # Mike - https://lavanet.atlassian.net/browse/GROW-1251
+        if self.user and self.account:
+            return True
+
         assert not self.is_existing
         try:
             a = SocialAccount.objects.get(
@@ -360,7 +373,6 @@ class SocialLogin(object):
         state["process"] = get_request_param(request, "process", "login")
         state["scope"] = get_request_param(request, "scope", "")
         state["auth_params"] = get_request_param(request, "auth_params", "")
-        state["user_hash"] = get_request_param(request, "user_hash", "")
         return state
 
     @classmethod

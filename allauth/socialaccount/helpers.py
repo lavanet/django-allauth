@@ -93,7 +93,6 @@ def _process_signup(request, sociallogin):
         resp = complete_social_signup(request, sociallogin)
     return resp
 
-
 def record_authentication(request, sociallogin):
     authentication.record_authentication(
         request,
@@ -206,9 +205,15 @@ def _add_social_account(request, sociallogin):
     )
     return HttpResponseRedirect(next_url)
 
-
 def complete_social_login(request, sociallogin):
+    # dont remove it - twitter login stops working after that
     # assert not sociallogin.is_existing
+
+    # maybe redirect on errors - but for now this is ok
+    from django.http import JsonResponse
+    if isinstance(sociallogin, JsonResponse):
+        return sociallogin
+
     sociallogin.lookup()
 
     try:
@@ -243,7 +248,6 @@ def _complete_social_login(request, sociallogin):
         # New social user
         ret = _process_signup(request, sociallogin)
     return ret
-
 
 def complete_social_signup(request, sociallogin):
     return complete_signup(

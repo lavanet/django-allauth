@@ -123,7 +123,6 @@ class OAuthCallbackView(OAuthView):
                 app,
                 token,
                 response=access_token,
-                **{"user_hash": state.get("user_hash")}
             )
             login.token = token
             login.state = state

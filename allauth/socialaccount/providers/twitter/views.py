@@ -1,9 +1,7 @@
 import json
 
-from django.contrib.auth import get_user_model
-
 from allauth.socialaccount.app_settings import QUERY_EMAIL
-from allauth.socialaccount.providers.oauth.client import OAuth, OAuthError
+from allauth.socialaccount.providers.oauth.client import OAuth
 from allauth.socialaccount.providers.oauth.views import (
     OAuthAdapter,
     OAuthCallbackView,
@@ -34,13 +32,8 @@ class TwitterOAuthAdapter(OAuthAdapter):
     authorize_url = "https://api.twitter.com/oauth/authenticate"
 
     def complete_login(self, request, app, token, response, **kwargs):
-        user_hash = kwargs.get("user_hash")
-        if user_hash is None: 
-            raise OAuthError("bad twitter link")
-    
         client = TwitterAPI(request, app.client_id, app.secret, self.request_token_url)
         extra_data = client.get_user_info()
-        extra_data.update({"user_hash": kwargs.get("user_hash", "")})
         return self.get_provider().sociallogin_from_response(request, extra_data)
 
 

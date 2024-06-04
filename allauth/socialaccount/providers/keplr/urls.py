@@ -4,7 +4,7 @@ from . import views
 
 urlpatterns = [
     path(
-        "keplr/login/",
+        "keplr4/login/",
         views.login_with_wallet,
         name="keplr_login",
     ),

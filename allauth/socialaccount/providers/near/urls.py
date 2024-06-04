@@ -4,7 +4,7 @@ from . import views
 
 urlpatterns = [
     path(
-        "near/login/",
+        "near4/login/",
         views.login_with_wallet,
         name="near_login",
     ),
